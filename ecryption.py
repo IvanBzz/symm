@@ -1,111 +1,166 @@
-def encrypt(key, message):
-    return ''.join(chr((ord(c) + key) % 65536) for c in message)
-
-def decrypt(key, message):
-    return ''.join(chr((ord(c) - key) % 65536) for c in message)
-
-
-def score_text(text, language='ru'):
-    common_chars = {
-        'ru': {
-            ' ': 0.175, 'о': 0.110, 'е': 0.085, 'а': 0.080, 'и': 0.074,
-            'н': 0.067, 'т': 0.063, 'с': 0.055, 'р': 0.047, 'в': 0.045
-        },
-        'en': {
-            ' ': 0.183, 'e': 0.120, 't': 0.091, 'a': 0.081, 'o': 0.077,
-            'i': 0.073, 'n': 0.070, 's': 0.063, 'r': 0.060, 'h': 0.059
-        }
-    }
-
-    char_freqs = common_chars.get(language.lower(), common_chars['ru'])
-
-    from collections import Counter
-    text_length = len(text)
-    if text_length == 0:
-        return 0
-
-    char_counts = Counter(text.lower())
-
-    score = 0
-    for char, expected_freq in char_freqs.items():
-        actual_freq = char_counts.get(char, 0) / text_length
-        score += (1 - abs(actual_freq - expected_freq)) * expected_freq
-
-    return score
+def extend_key(key, length):
+    if not key:
+        raise ValueError("Ключ не может быть пустым")
+    return (key * (length // len(key) + 1))[:length]
 
 
-def break_cipher(text, language='ru', max_candidates=3):
+def encrypt(key, message, alphabet_mode=False):
+    """
+    Шифрует сообщение с помощью шифра Виженера.
+
+    Args:
+        key: Ключ шифрования
+        message: Сообщение для шифрования
+        alphabet_mode: Если True, использует алфавитный режим для латиницы/кириллицы,
+                       иначе использует обобщенный Юникод-режим
+    """
+    if not message:
+        return ""
 
 
-    from collections import Counter
+    extended_key = extend_key(key, len(message))
+    encrypted_chars = []
 
-    if not text:
-        return [], None
+    if not alphabet_mode:
+        for m_char, k_char in zip(message, extended_key):
+            encrypted_char = chr((ord(m_char) + ord(k_char)) % 65536)
+            encrypted_chars.append(encrypted_char)
+    else:
+
+        key_idx = 0
+        for char in message:
+            if 'A' <= char <= 'Z':
+                shift = ord(extended_key[key_idx].upper()) % 26
+                if 'A' <= extended_key[key_idx].upper() <= 'Z':
+                    shift = ord(extended_key[key_idx].upper()) - ord('A')
+                encrypted_char = chr((ord(char) - ord('A') + shift) % 26 + ord('A'))
+                key_idx += 1
+            elif 'a' <= char <= 'z':
+                shift = ord(extended_key[key_idx].upper()) % 26
+                if 'A' <= extended_key[key_idx].upper() <= 'Z':
+                    shift = ord(extended_key[key_idx].upper()) - ord('A')
+                encrypted_char = chr((ord(char) - ord('a') + shift) % 26 + ord('a'))
+                key_idx += 1
+            elif 'А' <= char <= 'Я' or char == 'Ё':
+                char_code = ord(char) - ord('А') if char != 'Ё' else 6
+                key_char = extended_key[key_idx].upper()
+                key_code = ord(key_char) - ord('А') if key_char != 'Ё' and 'А' <= key_char <= 'Я' else 0
+                new_code = (char_code + key_code) % 33
+                if new_code == 6:
+                    encrypted_char = 'Ё'
+                else:
+                    if new_code > 6:
+                        new_code -= 1
+                    encrypted_char = chr(new_code + ord('А'))
+                key_idx += 1
+            elif 'а' <= char <= 'я' or char == 'ё':
+                char_code = ord(char) - ord('а') if char != 'ё' else 6
+                key_char = extended_key[key_idx].lower()
+                key_code = ord(key_char) - ord('а') if key_char != 'ё' and 'а' <= key_char <= 'я' else 0
+                new_code = (char_code + key_code) % 33
+                if new_code == 6:
+                    encrypted_char = 'ё'
+                else:
+                    if new_code > 6:
+                        new_code -= 1
+                    encrypted_char = chr(new_code + ord('а'))
+                key_idx += 1
+            else:
+                encrypted_char = char
+
+            encrypted_chars.append(encrypted_char)
+    return ''.join(encrypted_chars)
 
 
-    counter = Counter(text)
+def decrypt(key, ciphertext, alphabet_mode=False):
 
-    most_common_chars = [char for char, _ in counter.most_common(10)]
-
-    common_chars = {
-        'ru': [' ', 'о', 'е', 'а', 'и', 'н', 'т', 'с', 'р', 'в'],
-        'en': [' ', 'e', 't', 'a', 'o', 'i', 'n', 's', 'r', 'h']
-    }
-
-    freq_chars = common_chars.get(language.lower(), common_chars['ru'])
+    if not ciphertext:
+        return ""
 
 
-    candidates = []
-    for cipher_char in most_common_chars:
-        for plain_char in freq_chars:
-            key = (ord(cipher_char) - ord(plain_char)) % 65536
-            decrypted = decrypt(key, text)
-            score = score_text(decrypted, language)
-            candidates.append((decrypted, key, score))
+    extended_key = extend_key(key, len(ciphertext))
+    decrypted_chars = []
 
+    if not alphabet_mode:
 
-    candidates.sort(key=lambda x: x[2], reverse=True)
+        for c_char, k_char in zip(ciphertext, extended_key):
+            decrypted_char = chr((ord(c_char) - ord(k_char)) % 65536)
+            decrypted_chars.append(decrypted_char)
+    else:
 
-    
-    return candidates[:max_candidates]
+        key_idx = 0
+        for char in ciphertext:
+            if 'A' <= char <= 'Z':
 
+                shift = ord(extended_key[key_idx].upper()) % 26
+                if 'A' <= extended_key[key_idx].upper() <= 'Z':
+                    shift = ord(extended_key[key_idx].upper()) - ord('A')
+                decrypted_char = chr((ord(char) - ord('A') - shift) % 26 + ord('A'))
+                key_idx += 1
+            elif 'a' <= char <= 'z':
+
+                shift = ord(extended_key[key_idx].upper()) % 26
+                if 'A' <= extended_key[key_idx].upper() <= 'Z':
+                    shift = ord(extended_key[key_idx].upper()) - ord('A')
+                decrypted_char = chr((ord(char) - ord('a') - shift) % 26 + ord('a'))
+                key_idx += 1
+            elif 'А' <= char <= 'Я' or char == 'Ё':
+
+                char_code = ord(char) - ord('А') if char != 'Ё' else 6
+                key_char = extended_key[key_idx].upper()
+                key_code = ord(key_char) - ord('А') if key_char != 'Ё' and 'А' <= key_char <= 'Я' else 0
+                new_code = (char_code - key_code) % 33
+                if new_code == 6:
+                    decrypted_char = 'Ё'
+                else:
+                    if new_code > 6:
+                        new_code -= 1
+                    decrypted_char = chr(new_code + ord('А'))
+                key_idx += 1
+            elif 'а' <= char <= 'я' or char == 'ё':
+
+                char_code = ord(char) - ord('а') if char != 'ё' else 6
+                key_char = extended_key[key_idx].lower()
+                key_code = ord(key_char) - ord('а') if key_char != 'ё' and 'а' <= key_char <= 'я' else 0
+                new_code = (char_code - key_code) % 33
+                if new_code == 6:
+                    decrypted_char = 'ё'
+                else:
+                    if new_code > 6:
+                        new_code -= 1
+                    decrypted_char = chr(new_code + ord('а'))
+                key_idx += 1
+            else:
+                decrypted_char = char
+
+            decrypted_chars.append(decrypted_char)
+    return ''.join(decrypted_chars)
 
 if __name__ == "__main__":
     try:
-        key = int(input("Введите ключ для шифрования (целое число): "))
-    except ValueError:
-        print("Ошибка: ключ должен быть целым числом!")
-        exit(1)
-
-    plain_text = input("Введите текст для шифрования: ")
-
-
-    encrypted_text = encrypt(key, plain_text)
-    print("\nЗашифрованный текст:\n", encrypted_text)
-
-
-
-    language = input("Выберите язык для анализа (ru/en), по умолчанию русский: ").lower()
-    if language not in ['ru', 'en']:
-        language = 'ru'
-
+        key = input("Введите ключ для шифрования (строка): ")
+        if not key:
+            print("Ошибка: ключ не может быть пустым")
+            exit(1)
+        message = input("Введите текст для шифрования: ")
     
-    print("\nПытаемся восстановить текст...")
-    candidates = break_cipher(encrypted_text, language)
-
-    if candidates:
-        print("\nТоп вариантов расшифровки (в порядке убывания вероятности):")
-        for i, (candidate_text, candidate_key, score) in enumerate(candidates, 1):
-            print(f"\n{i}. Ключ: {candidate_key}, Оценка: {score:.4f}")
-            print(f"Текст: {candidate_text[:100]}{'...' if len(candidate_text) > 100 else ''}")
-
-        if any(candidate_key == key for _, candidate_key, _ in candidates):
-            print("\nУспех! Правильный ключ найден среди кандидатов.")
+        # Выбор режима шифрования
+        mode_choice = input("Использовать алфавитный режим? (да/нет, по умолчанию - нет): ").lower()
+        alphabet_mode = mode_choice in ('да', 'yes', 'y', 'д')
+    
+        # Шифруем текст
+        encrypted_text = encrypt(key, message, alphabet_mode)
+    
+        print("\nЗашифрованный текст:\n", encrypted_text)
+    
+        # Дешифруем текст
+        decrypted_text = decrypt(key, encrypted_text, alphabet_mode)
+        print("\nРасшифрованный текст:\n", decrypted_text)
+    
+        # Проверка корректности
+        if decrypted_text == message:
+            print("\nПроверка пройдена: расшифрованный текст совпадает с исходным!")
         else:
-            print("\nВнимание: правильный ключ не найден среди кандидатов.")
-    else:
-        print("\nНе удалось расшифровать текст.")
-
-
-    print("\nДля сравнения, правильная расшифровка с исходным ключом:")
-    print(decrypt(key, encrypted_text))
+            print("\nОшибка: расшифрованный текст не совпадает с исходным.")
+    except Exception as e:
+        print(f"Произошла ошибка: {e}")
